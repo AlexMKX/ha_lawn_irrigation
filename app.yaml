@@ -1,0 +1,19 @@
+ha_lawn_irrigation:
+  class: ha_lawn_irrigation
+  module: ha_lawn_irrigation
+  config:
+    min_duration_sec: 6
+    max_duration_sec: 10
+    zones:
+      - valve: switch.out_lawn_zone1_valve
+        moisture: sensor.out_lawn_sensor_zone1_soil_moisture
+      - valve: switch.out_lawn_zone2_valve
+        moisture: sensor.out_lawn_sensor_zone2_soil_moisture
+      - valve: switch.out_lawn_zone3_valve
+        moisture: sensor.out_lawn_sensor_zone3_soil_moisture
+      - valve: switch.out_lawn_zone4_valve
+        moisture: sensor.out_lawn_sensor_zone4_soil_moisture
+      - valve: switch.out_lawn_zone5_valve
+        moisture: sensor.out_lawn_sensor_zone5_soil_moisture
+      - valve: switch.out_lawn_zone6_valve
+        moisture: sensor.out_lawn_sensor_zone6_soil_moisture
