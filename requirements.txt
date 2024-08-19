@@ -1,3 +1,5 @@
+pydantic
 pydantic-settings
 appdaemon
-pandas
+python-statemachine
+nest-asyncio

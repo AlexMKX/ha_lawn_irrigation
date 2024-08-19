@@ -1,15 +1,18 @@
+from __future__ import annotations
 import appdaemon.plugins.hass.hassapi as hass
-import threading
 
 import os
 import sys
 from appdaemon.__main__ import main
-from pydantic_settings import BaseSettings
-from pydantic import Field
-import pandas as pd
 import queue
+import asyncio
+from typing import Any, ClassVar
+from collections import deque
+from statemachine import StateMachine, State
+from config import Config
 
-from typing import Any
+MY_EVENT = 'irrigate_lawn2'
+APP: Any
 
 if __name__ == '__main__':
     cd = os.path.join(os.path.dirname(__file__), '..')
@@ -18,135 +21,169 @@ if __name__ == '__main__':
     sys.exit(main())
 
 
-class Config(BaseSettings):
-    class ZoneConfig(BaseSettings):
-        valve: str
-        moisture: str
+class WorkItem(StateMachine):
+    created = State('created', initial=True)
+    start = State('start')
+    open = State('open')
+    opened = State('opened')
+    close = State('close')
+    closed = State('closed', final=True)
+    do_work = (created.to(start) |
+               start.to(open, validators="check_timeout") |
+               open.to(opened, cond="is_open", validators="check_timeout") |
+               opened.to(close, cond="can_close") |
+               close.to(closed, cond="is_closed", validators="check_timeout"))
+    state_timeout = 60
 
-    zones: list[ZoneConfig] = Field()
-    min_duration_sec: int = Field(60, description="Minimum duration of valve opening in seconds")
-    max_duration_sec: int = Field(600, description="Minimum duration of valve opening in seconds")
+    async def on_enter_created(self):
+        self._app.log(f"Entering 'created' state.")
 
+    async def on_enter_start(self):
+        async with asyncio.timeout(self._config.action_timeout_sec):
+            while not self.is_closed():
+                try:
+                    self._app.error(f"Valve {self.zone.valve} is already open, closing it")
+                    await self._app.call_service('homeassistant/turn_off', entity_id=self.zone.valve)
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    self._app.error(
+                        f"Error {e} in {self.zone.valve} {self.zone.moisture} "
+                        f"the valve status is {self.zone.valve_state}")
+                    await asyncio.sleep(1)
 
-class ir_data:
+    def on_enter_state(self, event, state):
+        self._reset_timer(self.state_timeout)
+        self._app.log(
+            f"Entering '{state.id}' state from '{event}' event for {self.zone.valve} and {self.zone.moisture}.")
 
-    def __init__(self, cfg: Config.ZoneConfig, hass: hass.Hass):
-        self.cfg: Config.ZoneConfig = cfg
-        self.factor: float
-        self.valve_duration = 0
-        self.deadline: threading.Timer = threading.Timer(interval=0, function=self.stop)
-        self._lock: threading.Lock
-        self.factor = 1.0
-        self._hass = hass
-        self._lock = threading.RLock()
+    async def cleanup(self):
+        try:
+            async with asyncio.timeout(self._config.action_timeout_sec):
+                while not self.is_closed():
+                    try:
+                        self._app.log(f'Closing valve {self.zone.valve} during cleanup')
+                        await self._app.call_service('homeassistant/turn_off', entity_id=self.zone.valve)
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        self._app.error(
+                            f"Error {e} in {self.zone.valve} {self.zone.moisture} "
+                            f"the valve status is {self.zone.valve_state}")
+                        await asyncio.sleep(1)
+        except Exception as e:
+            self._app.error(
+                f"Error {e} in {self.zone.valve} {self.zone.moisture} "
+                f"the valve status is {self.zone.valve_state}")
+        finally:
+            self._app.error(
+                f"Error in {self.zone.valve} {self.zone.moisture} the valve status is {self.zone.valve_state}")
+
+    def _reset_timer(self, deadline: int = 60):
+        self._enter_time = asyncio.get_running_loop().time() + deadline
+
+    def check_timeout(self):
+        if self._expired:
+            raise TimeoutError(f"Timeout in {self.zone.valve} in state {self.current_state}")
+
+    async def on_enter_open(self):
+        self._app.log("Opening valve")
+        self._lower_bound = self._app.current - self.zone.height
+        await self._app.call_service('homeassistant/turn_on', entity_id=self.zone.valve)
+
+    async def on_enter_opened(self):
+        self._app.log("Valve opened")
+        self._reset_timer(self._config.max_duration_sec)
+
+    async def on_enter_close(self):
+        self._app.log("Closing valve")
+        await self._app.call_service('homeassistant/turn_off', entity_id=self.zone.valve)
+
+    def is_closed(self) -> bool:
+        return self.zone.valve_state == "off"
+
+    def can_close(self) -> bool:
+        if self._expired:
+            self._app.log("Closing valve because expired=True")
+            return True
+        i = self._app.current
+        if i < self._lower_bound:
+            self._app.log(f"Closing valve because current={i} < lower_bound={self._lower_bound}")
+            return True
+        return False
 
     @property
-    def moisture(self) -> float:
-        return float(self._hass.get_state(self.cfg.moisture))
+    def _expired(self) -> bool:
+        return asyncio.get_running_loop().time() > self._enter_time
 
-    @property
+    def __init__(self, app: ha_lawn_irrigation, config: Config, zone: Config.ZoneConfig):
+        super().__init__(allow_event_without_transition=True)
+        self.zone: Config.ZoneConfig = zone
+        self._lower_bound = None
+        self._config = config
+        self._app: ha_lawn_irrigation = app
+
     def is_open(self) -> bool:
-        return self._hass.get_state(self.cfg.valve) != 'off'
-
-    def start(self):
-        import time
-        self._hass.log(f"Starting irrigation via {self.cfg.valve} for {self.valve_duration} seconds")
-        while not self.is_open:
-            self._hass.turn_on(self.cfg.valve)
-            time.sleep(1)
-            if not self.is_open:
-                time.sleep(5)
-        self._hass.log(f"Started irrigation via {self.cfg.valve} for {self.valve_duration} seconds")
-        self.set_deadline(self.valve_duration)
-        self.valve_duration = 0
-
-    def set_deadline(self, duration: int):
-        with self._lock:
-            if self.deadline.is_alive():
-                self._hass.log(f"Resetting deadline for {self.cfg.valve} to {self.valve_duration} seconds",
-                               level="WARNING")
-                self.deadline.cancel()
-            if self.deadline:
-                del self.deadline
-            self.deadline = threading.Timer(interval=duration, function=self.stop)
-            self.deadline.start()
-
-    def stop(self):
-        import time
-        self._hass.log(f"Stopping irrigation via {self.cfg.valve}")
-        while self.is_open:
-            self._hass.turn_off(self.cfg.valve)
-            time.sleep(1)
-            if self.is_open:
-                time.sleep(5)
-        self.valve_duration = 0
-        self._hass.log(f"Stopped irrigation via {self.cfg.valve}")
-
-
-def distribute(inp: list[float], duration) -> list[float]:
-    s = pd.Series(inp)
-    mx = s.max()
-    s = s.apply(lambda x: mx - x)
-    factor = duration / s.sum()
-    workseconds = [x * factor for x in s]
-    return workseconds
+        self._app.log(f"is_open {self._expired}")
+        return "on" == self.zone.valve_state
 
 
 class ha_lawn_irrigation(hass.Hass):
+    # todo add retries on template
+    # todo add ensure valves closed on start and on finish
 
-    def irrigate(self, event_name, data, cbargs):
-        class event_config(BaseSettings):
-            duration: int
-            metadata: Any
-
-        if event_name != 'irrigate_lawn':
-            self.log(f'Unknown event {event_name}', severity='WARNING')
-            return
-        try:
-            c: event_config = event_config(**data)
-        except Exception as e:
-            self.log(f'Invalid event data {data}', severity='ERROR')
-            return
-        self.log(f'Got irrigate_lawn event with duration {c.duration} seconds')
-        with self._lock:
-            min_duration = self._settings.min_duration_sec
-            left = c.duration - min_duration * len(self._irdata)
-            z = distribute([x.moisture for x in self._irdata], left)
-            z = [x + min_duration for x in z]
-            for x in range(len(self._irdata)):
-                self._irdata[x].valve_duration = z[x]
-
-    def sync_state(self, arg):
-        if self._lock.locked():
-            return
-        with self._lock:
-            open_valves = [x for x in self._irdata if x.is_open]
-            for v in open_valves:
-                # set deadline for out of bound running valves
-                if not v.deadline.is_alive():
-                    self.log(
-                        f'Found {v.cfg.valve} is open without deadline. Setting deadline to {self._settings.max_duration_sec} seconds')
-                    v.set_deadline(self._settings.max_duration_sec)
-            # start irrigation if no valve is open
-            open_valves = [x for x in self._irdata if x.is_open]
-            if len(open_valves) > 0:
-                stropen = ", ".join([x.cfg.valve for x in open_valves])
-                #self.log(f"Open valves: {stropen} will not irrigate")
-                return
-            if len(open_valves) == 1:
-                self.log(f"More than 1 valve open {open_valves}", level="WARING")
-                return
-            to_open = [x for x in self._irdata if x.valve_duration > 0]
-            if len(to_open) == 0:
-                return
-            self.log(f"Starting irrigation for {to_open[0].cfg.valve} valves")
-            to_open[0].start()
-
-    def initialize(self):
+    def __init__(self, *args):
+        super().__init__(*args)
         self._pending = queue.Queue()
-        self._lock = threading.Lock()
-        self._settings = Config.model_validate(self.app_config['ha_lawn_irrigation']['config'])
-        self._irdata = [ir_data(x, self) for x in self._settings.zones]
-        self.run_every(self.sync_state, "now+2", 3)
-        self.listen_event(self.irrigate, "irrigate_lawn")
-        pass
+        self._lock = asyncio.Lock()
+        self._settings: Config | None = None
+        global APP
+        APP = self
+        self.event_handle = self.listen_event(self.irrigate, MY_EVENT)
+        self.work_items = deque()
+        self.work_items_lock = asyncio.Lock()
+
+        self.run_every(self.worker, "now+2", 3)
+
+    @property
+    def current(self) -> float:
+        return asyncio.get_running_loop().run_until_complete(self._async_current)
+
+    @property
+    async def _async_current(self):
+        async with asyncio.timeout(self._settings.action_timeout_sec):
+            while True:
+                x = None
+                try:
+                    x = await self.render_template(self._settings.sensor_template)
+                    rv = float(x)
+                    return rv
+                except:
+                    self.error(
+                        f"The template {self._settings.sensor_template} is unable to produce float output. Result is {x}")
+                    await asyncio.sleep(1)
+
+    async def irrigate(self, event_name, data, cbargs):
+        self._settings = Config.model_validate(data['config'], context={'app': self})
+        current = self.current
+        self._settings.distribute_water(current)
+        async with self.work_items_lock:
+            for zone in self._settings.zones:
+                if zone.moisture_state < 99:
+                    self.work_items.append(WorkItem(self, self._settings, zone))
+
+    async def worker(self, arg):
+        async with self.work_items_lock:
+            if self.work_items:
+                work_item: WorkItem = self.work_items.popleft()
+                try:
+                    await work_item.send('do_work')
+                    if not work_item.current_state in work_item.final_states:
+                        self.work_items.appendleft(work_item)
+                    else:
+                        self.log(
+                            f"Zone {work_item.zone.valve}/{work_item.zone.moisture_state} "
+                            f"reached final state {work_item.current_state}")
+                except Exception as e:
+                    self.error(
+                        f"Error in {work_item.zone.valve}/{work_item.zone.moisture_state} "
+                        f"at state {work_item.current_state}: {e}")
+                    await work_item.cleanup()
