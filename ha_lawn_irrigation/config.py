@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import appdaemon.plugins.hass.hassapi as hass
 
-from pydantic import Field, field_validator, ValidationInfo, BaseModel, model_validator
+from pydantic import Field, field_validator, ValidationInfo, BaseModel, model_validator, computed_field
 from typing import cast, Optional, Any, ClassVar
 
 import queue
@@ -11,7 +11,8 @@ import nest_asyncio
 
 nest_asyncio.apply()
 
-#todo: rewrite to have the sensors either template or entity_id
+
+# todo: rewrite to have the sensors either template or entity_id
 
 class Config(BaseModel):
     sensor_template: str = Field(description='Sensor Template')
@@ -32,7 +33,7 @@ class Config(BaseModel):
             return asyncio.get_event_loop().run_until_complete(self._async_valve_state())
 
         async def _async_valve_state(self):
-            #todo: rewrite to get timeout from config
+            # todo: rewrite to get timeout from config
             async with asyncio.timeout(180):
                 try:
                     if (x := (await self._app.get_state(self.valve)).lower()) in ('on', 'off'):
@@ -48,7 +49,7 @@ class Config(BaseModel):
             return x
 
         async def _async_moisture_state(self):
-            #todo: rewrite to get timeout from config
+            # todo: rewrite to get timeout from config
             async with asyncio.timeout(180):
                 while True:
                     try:
@@ -59,8 +60,13 @@ class Config(BaseModel):
 
         def model_post_init(self, __context: Any) -> None:
             self._app = __context['app']
+            st = self.valve_state
+            ms = self.moisture_state
+            self._app.log(st)
+            self._app.log(ms)
 
     zones: list[ZoneConfig] = Field()
+
     min_duration_sec: int = Field(60, description="Minimum duration of valve opening in seconds")
     max_duration_sec: int = Field(600, description="Minimum duration of valve opening in seconds")
     action_timeout_sec: int = Field(120, description="The timeout to wait if entity is unavailable")
@@ -71,7 +77,8 @@ class Config(BaseModel):
         rv = []
         for x in v:
             try:
-                rv.append(cls.ZoneConfig.model_validate(x, context=info.context))
+                z = cls.ZoneConfig.model_validate(x, context=info.context)
+                rv.append(z)
             except Exception as e:
                 info.context['app'].error(f'Error in zone {x}: {e}')
         return rv
