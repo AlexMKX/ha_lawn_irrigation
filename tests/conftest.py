@@ -2,6 +2,6 @@
 import os
 mode = os.environ.get("AUTOQA_MODE", "unit")
 if mode == "e2e":
-    from tests.conftest_e2e import *  # noqa: F401, F403
+    from conftest_e2e import *  # noqa: F401, F403
 else:
-    from tests.conftest_unit import *  # noqa: F401, F403
+    from conftest_unit import *  # noqa: F401, F403

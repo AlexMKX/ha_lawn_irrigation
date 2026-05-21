@@ -4,6 +4,7 @@ from .const import DOMAIN
 
 class LawnIrrigationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
+    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input=None):
         await self.async_set_unique_id(DOMAIN)
