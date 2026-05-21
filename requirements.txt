@@ -1,5 +1,4 @@
-pydantic
-pydantic-settings
-appdaemon
-python-statemachine
-nest-asyncio
+pytest
+pytest-asyncio
+pytest-mock
+homeassistant
