@@ -1,0 +1,55 @@
+irrigate:
+  name: Irrigate Lawn
+  description: Run sequential zone irrigation using inverse-moisture water distribution.
+  fields:
+    water_level_sensor:
+      name: Water level sensor
+      description: Sensor entity reporting current water level (numeric).
+      required: true
+      selector:
+        entity:
+          domain: sensor
+    water_level_min:
+      name: Minimum water level
+      description: Irrigation stops when sensor value drops to or below this threshold.
+      required: true
+      example: 200
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 1
+          mode: box
+    zone_duration_max_sec:
+      name: Per-zone safety cap (seconds)
+      description: Maximum time a single zone may stay open.
+      required: false
+      default: 600
+      selector:
+        number:
+          min: 60
+          max: 3600
+          step: 10
+          unit_of_measurement: s
+          mode: box
+    zones:
+      name: Zones
+      description: Ordered list of zones to irrigate.
+      required: true
+      selector:
+        object:
+          multiple: true
+          label_field: entity_id
+          fields:
+            entity_id:
+              label: Valve switch
+              required: true
+              selector:
+                entity:
+                  domain: switch
+            moisture_sensor:
+              label: Moisture sensor
+              required: true
+              selector:
+                entity:
+                  domain: sensor

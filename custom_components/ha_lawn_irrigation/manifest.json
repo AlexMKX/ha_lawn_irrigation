@@ -1,7 +1,7 @@
 {
   "domain": "ha_lawn_irrigation",
   "name": "Lawn Irrigation",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "documentation": "https://github.com/AlexMKX/ha_lawn_irrigation",
   "requirements": [],
   "dependencies": [],
