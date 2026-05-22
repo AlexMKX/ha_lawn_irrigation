@@ -17,8 +17,9 @@ def mock_sleep(monkeypatch):
 
 async def test_force_close_all_called_in_finally(hass):
     call_data = {
-        "water_level_template": "{{ 200 }}",
-        "zones": [{"entity_id": "switch.valve_0", "moisture_sensor": "sensor.m0", "duration_min": 1}],
+        "water_level_sensor": "sensor.water_level",
+        "water_level_min": 10.0,
+        "zones": [{"entity_id": "switch.valve_0", "moisture_sensor": "sensor.m0"}],
     }
 
     def get_state(eid):
@@ -27,7 +28,7 @@ async def test_force_close_all_called_in_finally(hass):
         return mock_state("50")
 
     hass.states.get.side_effect = get_state
-    with patch("custom_components.ha_lawn_irrigation.irrigation.render_water_level", return_value=200.0), \
+    with patch("custom_components.ha_lawn_irrigation.irrigation.read_water_level", return_value=200.0), \
          patch("custom_components.ha_lawn_irrigation.irrigation.force_close_all", new_callable=AsyncMock) as mock_fca:
         mock_fca.return_value = []
         with patch("custom_components.ha_lawn_irrigation.irrigation.ensure_valve_state", new_callable=AsyncMock, side_effect=Exception("boom")):
