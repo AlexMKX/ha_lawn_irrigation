@@ -1,4 +1,5 @@
 """Lawn irrigation core logic for ha_lawn_irrigation integration."""
+
 import asyncio
 import logging
 
@@ -44,9 +45,7 @@ def render_water_level(hass, template_str: str):
         return None
 
 
-async def ensure_valve_state(
-    hass, entity_id: str, desired_state: str, retries: list = None
-) -> bool:
+async def ensure_valve_state(hass, entity_id: str, desired_state: str, retries: list = None) -> bool:
     """Ensure a valve entity reaches the desired state with retry backoff."""
     if retries is None:
         retries = RETRY_BACKOFF
@@ -76,9 +75,7 @@ async def ensure_valve_state(
         if current == desired_state:
             return True
 
-    _LOGGER.error(
-        "Failed to set %s to %s after all retries", entity_id, desired_state
-    )
+    _LOGGER.error("Failed to set %s to %s after all retries", entity_id, desired_state)
     return False
 
 
@@ -92,9 +89,7 @@ async def force_close_all(hass, zone_entities: list) -> list:
     return failed
 
 
-async def _send_notification(
-    hass, message: str, title: str = "Lawn Irrigation"
-) -> None:
+async def _send_notification(hass, message: str, title: str = "Lawn Irrigation") -> None:
     """Send a persistent notification via HA services."""
     await hass.services.async_call(
         "persistent_notification",
@@ -104,7 +99,7 @@ async def _send_notification(
             "title": title,
             "notification_id": NOTIFICATION_ID,
         },
-        blocking=False,
+        blocking=True,
     )
 
 
@@ -154,6 +149,8 @@ async def run_irrigation(hass, call_data: dict) -> None:
     moisture_values = [m for (_, m, _) in valid_zones]
     heights = distribute_water(moisture_values, initial_level)
 
+    await _send_notification(hass, f"Irrigation started: {len(valid_zones)} zone(s).")
+
     summary_lines = []
 
     try:
@@ -182,9 +179,7 @@ async def run_irrigation(hass, call_data: dict) -> None:
                     break
 
             await ensure_valve_state(hass, entity_id, "off")
-            summary_lines.append(
-                f"{entity_id}: irrigated (moisture={moisture:.1f}, height={height:.2f})"
-            )
+            summary_lines.append(f"{entity_id}: irrigated (moisture={moisture:.1f}, height={height:.2f})")
 
     finally:
         failed = await force_close_all(hass, all_valve_ids)

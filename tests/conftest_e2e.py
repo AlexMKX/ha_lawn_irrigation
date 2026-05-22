@@ -7,6 +7,7 @@ ha-test-kit handles provisioning and exports:
 """
 
 import asyncio
+import json
 import os
 
 import aiohttp
@@ -64,9 +65,36 @@ class HAInstance:
         return await self.api_get("/api/states")
 
     async def get_notifications(self) -> list:
-        """Return all persistent notifications."""
-        states = await self.get_states()
-        return [s for s in states if s["entity_id"].startswith("persistent_notification.")]
+        """Return all persistent notifications via WebSocket API (HA 2023.9+)."""
+        ws_url = self.base_url.replace("http://", "ws://").replace("https://", "wss://") + "/api/websocket"
+        async with aiohttp.ClientSession(connector=self._connector()) as s:
+            async with s.ws_connect(ws_url) as ws:
+                # Receive auth_required
+                await ws.receive_json()
+                # Send auth
+                await ws.send_json({"type": "auth", "access_token": self.token})
+                # Receive auth_ok
+                msg = await ws.receive_json()
+                if msg.get("type") != "auth_ok":
+                    raise RuntimeError(f"WebSocket auth failed: {msg}")
+                # Request notifications
+                await ws.send_json({"id": 1, "type": "persistent_notification/get"})
+                result = await ws.receive_json()
+                if result.get("type") == "result" and result.get("success"):
+                    notifs = result.get("result", [])
+                    # Normalize to look like state dicts for test compatibility
+                    return [
+                        {
+                            "entity_id": f"persistent_notification.{n['notification_id']}",
+                            "attributes": {
+                                "message": n.get("message", ""),
+                                "title": n.get("title", ""),
+                            },
+                            "state": "notifying",
+                        }
+                        for n in notifs
+                    ]
+                return []
 
     async def get_config_entries(self, domain: str) -> list:
         entries = await self.api_get("/api/config/config_entries/entry")

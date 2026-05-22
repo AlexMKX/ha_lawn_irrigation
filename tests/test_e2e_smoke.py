@@ -77,14 +77,9 @@ class TestIrrigationSmoke:
             n for n in notifications
             if "ha_lawn_irrigation" in n["entity_id"] or "irrigation" in n["entity_id"].lower()
         ]
-        # Also check via states API directly
-        if not irr_notifs:
-            all_states = await ha.get_states()
-            notif_entities = [s["entity_id"] for s in all_states if "persistent_notification" in s["entity_id"]]
-            # At least ONE notification should exist
-            assert len(notif_entities) > 0, f"No persistent notifications found. States: {notif_entities}"
-        else:
-            assert len(irr_notifs) >= 1
+        assert len(irr_notifs) >= 1 or len(notifications) > 0, (
+            f"No persistent notifications found. All notifications: {[n['entity_id'] for n in notifications]}"
+        )
 
     async def test_preflight_rejects_open_valve(self, ha_with_integration, reset_valves):
         """If a valve is already on, irrigate should abort with notification."""
@@ -110,11 +105,7 @@ class TestIrrigationSmoke:
         await asyncio.sleep(3)
 
         # Verify notification mentions "already open" or "aborted"
-        all_states = await ha.get_states()
-        notif_states = [
-            s for s in all_states
-            if s["entity_id"].startswith("persistent_notification.")
-        ]
+        notif_states = await ha.get_notifications()
         # Find the irrigation notification
         irr_notif = None
         for n in notif_states:

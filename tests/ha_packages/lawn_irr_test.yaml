@@ -1,0 +1,32 @@
+# HA package: test entities for ha_lawn_irrigation E2E tests
+# 2 fake zones: input_boolean as valves, input_number as moisture sensors
+
+input_boolean:
+  irr_test_valve_1:
+    name: Irrigation Test Valve 1
+    initial: false
+  irr_test_valve_2:
+    name: Irrigation Test Valve 2
+    initial: false
+  irr_preflight_valve:
+    name: Irrigation Preflight Valve (pre-opened for test)
+    initial: false
+
+input_number:
+  irr_test_moisture_1:
+    name: Irrigation Test Moisture 1
+    initial: 30
+    min: 0
+    max: 100
+    step: 1
+  irr_test_moisture_2:
+    name: Irrigation Test Moisture 2
+    initial: 60
+    min: 0
+    max: 100
+    step: 1
+
+logger:
+  default: info
+  logs:
+    custom_components.ha_lawn_irrigation: debug

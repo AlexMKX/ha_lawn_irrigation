@@ -1,4 +1,5 @@
 """ha_lawn_irrigation integration."""
+
 import logging
 
 import voluptuous as vol
@@ -21,9 +22,7 @@ IRRIGATE_SCHEMA = vol.Schema(
                     {
                         vol.Required("entity_id"): cv.entity_id,
                         vol.Required("moisture_sensor"): cv.entity_id,
-                        vol.Optional("duration_min", default=10): vol.All(
-                            vol.Coerce(int), vol.Range(min=1, max=120)
-                        ),
+                        vol.Optional("duration_min", default=10): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
                     }
                 )
             ],
@@ -37,11 +36,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_irrigate(call: ServiceCall) -> None:
         """Handle the irrigate service call."""
-        await run_irrigation(hass, dict(call.data))
+        hass.async_create_task(run_irrigation(hass, dict(call.data)))
 
-    hass.services.async_register(
-        DOMAIN, SERVICE_IRRIGATE, handle_irrigate, schema=IRRIGATE_SCHEMA
-    )
+    hass.services.async_register(DOMAIN, SERVICE_IRRIGATE, handle_irrigate, schema=IRRIGATE_SCHEMA)
     _LOGGER.info("ha_lawn_irrigation: service %s.%s registered", DOMAIN, SERVICE_IRRIGATE)
     return True
 
