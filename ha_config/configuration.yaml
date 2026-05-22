@@ -1,1 +1,13 @@
-# ha_config/configuration.yaml
+# Home Assistant configuration for E2E tests
+
+homeassistant:
+  name: E2E Test Home
+  unit_system: metric
+  time_zone: UTC
+
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.ha_lawn_irrigation: debug
