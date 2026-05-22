@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, SERVICE_IRRIGATE, DEFAULT_ZONE_DURATION_MAX_SEC
+from .const import DEFAULT_ZONE_DURATION_MAX_SEC, DOMAIN, SERVICE_IRRIGATE
 from .irrigation import run_irrigation
 
 _LOGGER = logging.getLogger(__name__)

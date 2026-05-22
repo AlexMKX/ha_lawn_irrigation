@@ -192,9 +192,7 @@ async def run_irrigation(hass, call_data: dict) -> None:
                     break
 
             await ensure_valve_state(hass, entity_id, "off")
-            summary_lines.append(
-                f"{entity_id}: {reason} (moisture={moisture:.1f}, height={height:.2f})"
-            )
+            summary_lines.append(f"{entity_id}: {reason} (moisture={moisture:.1f}, height={height:.2f})")
             remaining_moistures.pop(0)
 
             if reason == "min_reached":

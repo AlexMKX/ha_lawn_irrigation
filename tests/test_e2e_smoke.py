@@ -5,18 +5,17 @@ import pytest
 
 pytestmark = pytest.mark.docker_e2e
 
-WATER_TEMPLATE = "{{ 250 | float }}"
+WATER_LEVEL_SENSOR = "input_number.irr_test_water_level"
+WATER_LEVEL_MIN = 100
 
 ZONES = [
     {
         "entity_id": "input_boolean.irr_test_valve_1",
         "moisture_sensor": "input_number.irr_test_moisture_1",
-        "duration_min": 1,
     },
     {
         "entity_id": "input_boolean.irr_test_valve_2",
         "moisture_sensor": "input_number.irr_test_moisture_2",
-        "duration_min": 1,
     },
 ]
 
@@ -55,15 +54,21 @@ class TestIrrigationSmoke:
             "input_number", "set_value",
             {"entity_id": "input_number.irr_test_moisture_2", "value": 60},
         )
+        # Set water level well above minimum
+        await ha.call_service(
+            "input_number", "set_value",
+            {"entity_id": WATER_LEVEL_SENSOR, "value": 500},
+        )
         await asyncio.sleep(1)
 
-        # Call irrigate service (duration_min=1 means max 60s per zone)
-        # But irrigation.py polls every 2s so we just check it fires
+        # Call irrigate service
         await ha.call_service(
             "ha_lawn_irrigation",
             "irrigate",
             {
-                "water_level_template": WATER_TEMPLATE,
+                "water_level_sensor": WATER_LEVEL_SENSOR,
+                "water_level_min": WATER_LEVEL_MIN,
+                "zone_duration_max_sec": 120,
                 "zones": ZONES,
             },
         )
@@ -98,7 +103,9 @@ class TestIrrigationSmoke:
             "ha_lawn_irrigation",
             "irrigate",
             {
-                "water_level_template": WATER_TEMPLATE,
+                "water_level_sensor": WATER_LEVEL_SENSOR,
+                "water_level_min": WATER_LEVEL_MIN,
+                "zone_duration_max_sec": 120,
                 "zones": ZONES,
             },
         )
@@ -106,7 +113,6 @@ class TestIrrigationSmoke:
 
         # Verify notification mentions "already open" or "aborted"
         notif_states = await ha.get_notifications()
-        # Find the irrigation notification
         irr_notif = None
         for n in notif_states:
             attrs = n.get("attributes", {})
