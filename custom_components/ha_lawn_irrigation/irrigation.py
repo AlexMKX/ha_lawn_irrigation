@@ -3,13 +3,10 @@
 import asyncio
 import logging
 
-from homeassistant.helpers import config_validation as cv
-
 from .const import NOTIFICATION_ID
 
 _LOGGER = logging.getLogger(__name__)
 
-SKIP_MOISTURE_THRESHOLD = 99
 RETRY_BACKOFF = [1, 2, 4, 8, 16]
 TICK_SEC = 2
 
@@ -33,15 +30,16 @@ def distribute_water(moisture_values: list, total: float) -> list:
     return [total * w / weight_sum for w in weights]
 
 
-def render_water_level(hass, template_str: str):
-    """Render a Jinja2 template string and return the result as float or None."""
+def read_water_level(hass, entity_id: str):
+    """Read a numeric sensor state; return float or None on missing/non-numeric."""
+    raw = hass.states.get(entity_id)
+    norm = normalize_state(raw)
+    if norm in (None, "unknown", "unavailable", "none", ""):
+        return None
     try:
-        tmpl = cv.template(template_str)
-        tmpl.hass = hass
-        rendered = tmpl.async_render(parse_result=False)
-        return float(rendered)
-    except Exception as exc:  # noqa: BLE001
-        _LOGGER.debug("render_water_level failed: %s", exc)
+        return float(norm)
+    except (TypeError, ValueError):
+        _LOGGER.debug("read_water_level: non-numeric %r for %s", norm, entity_id)
         return None
 
 
