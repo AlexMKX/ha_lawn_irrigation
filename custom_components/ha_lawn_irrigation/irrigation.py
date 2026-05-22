@@ -102,9 +102,11 @@ async def _send_notification(hass, message: str, title: str = "Lawn Irrigation")
 
 
 async def run_irrigation(hass, call_data: dict) -> None:
-    """Execute the full irrigation sequence."""
-    water_level_template = call_data.get("water_level_template", "")
-    zones = call_data.get("zones", [])
+    """Execute v2 irrigation sequence."""
+    water_level_sensor = call_data["water_level_sensor"]
+    water_level_min = float(call_data["water_level_min"])
+    zone_duration_max_sec = int(call_data.get("zone_duration_max_sec", 600))
+    zones = call_data["zones"]
 
     all_valve_ids = [z["entity_id"] for z in zones]
 
@@ -119,7 +121,7 @@ async def run_irrigation(hass, call_data: dict) -> None:
             )
             return
 
-    # Collect moisture readings
+    # Collect moisture readings into valid_zones [(entity_id, moisture)]
     valid_zones = []
     for zone in zones:
         raw = hass.states.get(zone["moisture_sensor"])
@@ -129,60 +131,79 @@ async def run_irrigation(hass, call_data: dict) -> None:
         except (TypeError, ValueError):
             _LOGGER.warning("Invalid moisture for %s: %s", zone["moisture_sensor"], norm)
             continue
-        valid_zones.append((zone["entity_id"], moisture, zone.get("duration_min", 10)))
+        valid_zones.append((zone["entity_id"], moisture))
 
     if not valid_zones:
         await _send_notification(hass, "Irrigation aborted: no valid moisture data.")
         return
 
-    # Render initial water level
-    initial_level = render_water_level(hass, water_level_template)
-    if initial_level is None or initial_level <= 0:
+    initial_level = read_water_level(hass, water_level_sensor)
+    if initial_level is None or initial_level <= water_level_min:
         await _send_notification(
             hass,
-            f"Irrigation aborted: invalid water level ({initial_level}).",
+            f"Irrigation aborted: insufficient water (level={initial_level}, min={water_level_min}).",
         )
         return
 
-    moisture_values = [m for (_, m, _) in valid_zones]
-    heights = distribute_water(moisture_values, initial_level)
-
     await _send_notification(hass, f"Irrigation started: {len(valid_zones)} zone(s).")
 
+    remaining_moistures = [m for (_, m) in valid_zones]
     summary_lines = []
 
     try:
-        for i, (entity_id, moisture, duration_min) in enumerate(valid_zones):
-            height = heights[i]
+        for entity_id, moisture in valid_zones:
+            # Rebalance for remaining zones
+            level = read_water_level(hass, water_level_sensor)
+            if level is None or level <= water_level_min:
+                summary_lines.append(f"{entity_id}: skipped (level={level})")
+                remaining_moistures.pop(0)
+                break
 
-            if moisture >= SKIP_MOISTURE_THRESHOLD:
-                _LOGGER.info("Skipping %s (moisture=%.1f)", entity_id, moisture)
-                summary_lines.append(f"{entity_id}: skipped (moisture={moisture:.1f})")
-                continue
+            budget = level - water_level_min
+            heights = distribute_water(remaining_moistures, budget)
+            height = heights[0]
+            target_level = level - height
 
             opened = await ensure_valve_state(hass, entity_id, "on")
             if not opened:
                 summary_lines.append(f"{entity_id}: failed to open")
+                remaining_moistures.pop(0)
                 continue
 
-            target_level = initial_level - height
             elapsed = 0
-            max_seconds = duration_min * 60
-
-            while elapsed < max_seconds:
+            reason = "safety_cap"
+            while elapsed < zone_duration_max_sec:
                 await asyncio.sleep(TICK_SEC)
                 elapsed += TICK_SEC
-                current_level = render_water_level(hass, water_level_template)
-                if current_level is None or current_level < target_level:
+
+                current = read_water_level(hass, water_level_sensor)
+                if current is None:
+                    continue
+                if current <= water_level_min:
+                    reason = "min_reached"
+                    break
+                if current <= target_level:
+                    reason = "target_reached"
+                    break
+
+                valve_state = normalize_state(hass.states.get(entity_id))
+                if valve_state == "off":
+                    reason = "externally_closed"
                     break
 
             await ensure_valve_state(hass, entity_id, "off")
-            summary_lines.append(f"{entity_id}: irrigated (moisture={moisture:.1f}, height={height:.2f})")
+            summary_lines.append(
+                f"{entity_id}: {reason} (moisture={moisture:.1f}, height={height:.2f})"
+            )
+            remaining_moistures.pop(0)
 
+            if reason == "min_reached":
+                break
     finally:
         failed = await force_close_all(hass, all_valve_ids)
         if failed:
             _LOGGER.error("Failed to close valves: %s", failed)
+            summary_lines.append(f"failed_to_close={failed}")
 
     summary = "\n".join(summary_lines) if summary_lines else "No zones irrigated."
     await _send_notification(hass, f"Irrigation complete:\n{summary}")
