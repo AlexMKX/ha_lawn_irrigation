@@ -7,26 +7,26 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, SERVICE_IRRIGATE
+from .const import DOMAIN, SERVICE_IRRIGATE, DEFAULT_ZONE_DURATION_MAX_SEC
 from .irrigation import run_irrigation
 
 _LOGGER = logging.getLogger(__name__)
 
+ZONE_SCHEMA = vol.Schema(
+    {
+        vol.Required("entity_id"): cv.entity_id,
+        vol.Required("moisture_sensor"): cv.entity_id,
+    }
+)
+
 IRRIGATE_SCHEMA = vol.Schema(
     {
-        vol.Required("water_level_template"): cv.string,
-        vol.Required("zones"): vol.All(
-            cv.ensure_list,
-            [
-                vol.Schema(
-                    {
-                        vol.Required("entity_id"): cv.entity_id,
-                        vol.Required("moisture_sensor"): cv.entity_id,
-                        vol.Optional("duration_min", default=10): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
-                    }
-                )
-            ],
+        vol.Required("water_level_sensor"): cv.entity_id,
+        vol.Required("water_level_min"): vol.Coerce(float),
+        vol.Optional("zone_duration_max_sec", default=DEFAULT_ZONE_DURATION_MAX_SEC): vol.All(
+            vol.Coerce(int), vol.Range(min=60, max=3600)
         ),
+        vol.Required("zones"): vol.All(cv.ensure_list, [ZONE_SCHEMA], vol.Length(min=1)),
     }
 )
 
