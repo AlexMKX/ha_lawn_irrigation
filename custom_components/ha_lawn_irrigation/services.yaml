@@ -9,6 +9,9 @@ irrigate:
       selector:
         entity:
           domain: sensor
+          device_class:
+            - distance
+            - volume
     water_level_min:
       name: Minimum water level
       description: Irrigation stops when sensor value drops to or below this threshold.
@@ -53,3 +56,6 @@ irrigate:
               selector:
                 entity:
                   domain: sensor
+                  device_class:
+                    - moisture
+                    - humidity
