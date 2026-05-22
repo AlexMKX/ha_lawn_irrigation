@@ -69,5 +69,6 @@ def test_single_zone_zero_moisture():
 def test_order_preserved():
     result = distribute_water([10, 50, 30], 100)
     assert len(result) == 3
+    assert sum(result) == pytest.approx(100.0)
     # lowest moisture (index 0) should get most
     assert result[0] > result[2] > result[1]
