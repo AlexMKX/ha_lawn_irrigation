@@ -8,5 +8,29 @@
     "abort": {
       "already_configured": "Already configured"
     }
+  },
+  "services": {
+    "irrigate": {
+      "name": "Run irrigation",
+      "description": "Run the lawn irrigation cycle across one or more zones.",
+      "fields": {
+        "water_level_sensor": {
+          "name": "Water level sensor",
+          "description": "Entity ID of the sensor reporting current water level."
+        },
+        "water_level_min": {
+          "name": "Minimum water level",
+          "description": "Stop irrigating when the water level drops to this value."
+        },
+        "zone_duration_max_sec": {
+          "name": "Per-zone safety cap (seconds)",
+          "description": "Maximum time to run any single zone. Defaults to 600 seconds."
+        },
+        "zones": {
+          "name": "Zones",
+          "description": "List of zones to irrigate. Each zone requires entity_id (valve switch) and moisture_sensor."
+        }
+      }
+    }
   }
 }
